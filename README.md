@@ -320,7 +320,48 @@ source /tmp/$SITE_NAME.dbcreds.sh
 
 mysql mysql <<EOT
 CREATE DATABASE IF NOT EXISTS $DB_NAME;
-GRANT USAGE ON $DB_NAME.* TO '$DB_USER'@localhost IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@localhost IDENTIFIED BY '$DB_PASSWORD';
 EOT
+
+unset DB_NAME; unset DB_PASSWORD; unset DB_USER
 ```
 
+## Import the existing database
+
+```
+gunzip /tmp/$SITE_NAME-db.sql.gz
+wp db import --allow-root --path=/srv/$SITE_NAME /tmp/$SITE_NAME-db.sql
+```
+
+## Update all WordPress core, plugins, themes, etc.
+
+```
+cat > /etc/cron.daily/wp-update-$SITE_NAME <<EOT
+#!/bin/sh
+WP_CMD="/usr/local/bin/wp"
+WP_FLAGS="--allow-root --no-color"
+
+\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME core update\`
+\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME core update-db\`
+\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME plugin update --all\`
+\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME theme update --all\`
+
+EOT
+
+chmod +x /etc/cron.daily/wp-update-$SITE_NAME
+/etc/cron.daily/wp-update-$SITE_NAME
+
+```
+
+## Request SSL certificate with DNS validation
+
+```
+CERTBOT_EMAIL="me@example.com"
+certbot certonly --manual --preferred-challenges dns --agree-tos --email $CERTBOT_EMAIL --no-eff-email --domains "*.$SITE_NAME"
+# This will prompt for a DNS record creation - don't just hit Enter. TODO: Need a way to better automate this...
+# Creates files under /etc/letsencrypt/live/$SITE_NAME/
+
+```
+
+## Add nginx SSL configuration
+TODO.
