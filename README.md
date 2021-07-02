@@ -111,5 +111,101 @@ chmod +x /etc/cron.daily/wp-cli-update
 ### build first nginx site and templates
 
 ```
-WIP
+SITE_NAME="edgelink.example.com"
+dig $SITE_NAME
+mkdir -p "/srv/$SITE_NAME"; 
+cat > "/srv/$SITE_NAME/index.html" <<EOT
+Site $SITE_NAME being served through nginx
+
+EOT
+cat "/srv/$SITE_NAME/index.html"
+chown -R www-data:www-data "/srv/$SITE_NAME"
+mkdir -p /etc/nginx/templates; cd /etc/nginx/templates
+
+# https://serverfault.com/a/399432
+cat > "/etc/nginx/templates/static-site" <<"EOT" 
+server {
+    root /srv/{{ SITE_NAME }};
+    index index.html index.htm index.nginx-debian.html;
+    server_name {{ SITE_NAME }} www.{{ SITE_NAME }};
+    access_log /var/log/nginx/{{ SITE_NAME }}/access.log;
+    error_log /var/log/nginx/{{ SITE_NAME }}/error.log;
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    # Deny access to any files with a .php extension AT ALL
+    location ~* .*\.php$ {
+        deny all;
+    }
+
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+    
+    location / {
+        try_files $uri $uri/ /index.html$is_args$args /index.htm$is_args$args;
+    }
+
+    location ~* \.(gif|jpg|jpeg|png|css|js)$ {
+        expires max;
+    }
+}
+
+EOT
+
+
+cat > "/etc/nginx/templates/php-site" <<"EOT"
+server {
+    root /srv/{{ SITE_NAME }};
+    index index.php index.html index.htm index.nginx-debian.html;
+    server_name {{ SITE_NAME }} www.{{ SITE_NAME }};
+    access_log /var/log/nginx/{{ SITE_NAME }}/access.log;
+    error_log /var/log/nginx/{{ SITE_NAME }}/error.log;
+
+    client_max_body_size 64M;
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    # Deny access to any files with a .php extension in the uploads directory
+    location ~* /(?:uploads|files)/.*\.php$ {
+        deny all;
+    }
+
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location ~* \.(gif|jpg|jpeg|png|css|js)$ {
+        expires max;
+    }
+
+    # pass the PHP scripts to FastCGI server
+    location ~ \.php$ {
+        try_files $uri =404;
+        include /etc/nginx/fastcgi_params;
+        fastcgi_intercept_errors on;
+        fastcgi_read_timeout 3600s;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_pass unix:/run/php/php7.4-fpm.sock;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_index index.php;
+    }
+}
+EOT
+
 ```
+
