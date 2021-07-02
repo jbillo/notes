@@ -12,6 +12,48 @@ I'm looking to retry the Lightsail + WordPress migration for some services I sti
 * wp2static support for my own site as a nice-to-have (can run "lokl" maybe with some Docker containers on a large enough host?)
 
 ## Getting Started
+* Create new or use existing S3 bucket and get its ARN
+* Create new IAM user with access key (needed for Lightsail or non-AWS) with the appropriate policy attached, replacing _MY_BUCKET_NAME_ with your real bucket name:
+
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ListBackupBucket",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:s3:::MY_BUCKET_NAME"
+            ]
+        },
+        {
+            "Sid": "GetObjectsFromBackupBucket",
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:s3:::MY_BUCKET_NAME/*"
+            ]
+        },
+        {
+            "Sid": "PutObjectsToBackupBucket",
+            "Action": [
+                "s3:PutObject"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:s3:::MY_BUCKET_NAME/*"
+            ]
+        }            
+    ]
+}
+```
+
 * Create new Lightsail instance in AWS account (512MB/20GB at $3.50/month, ca-central-1d) via Web console
   * with fresh new keypair
   * Ubuntu 20.04
@@ -35,9 +77,7 @@ apt-get --yes upgrade
 * Ensure automatic upgrades are enabled for good measure - they do appear to be on the Lightsail Ubuntu 20.04 "AMI":
   * `cat /etc/apt/apt.conf.d/20auto-upgrades`
 
-## Setup Tasks (from Last Time)
-
-### Enable swapfile
+## Enable swapfile
 512MB isn't a whole lot of dedotated WAM. Enable a swapfile since we have some moderate EBS gp2 storage:
 
 ```
@@ -55,18 +95,11 @@ echo "/swapfile none swap defaults 0 0" >> /etc/fstab
 Confirm output of `free -m` contains a `Swap:` line.
 Reboot system to confirm that fstab entry and persistent hostname is effective. Remember to `sudo -i` your way to success.
 
-### pip
-Ensure at least _some_ version of pip is installed:
-
-```
-apt-get --yes install python3-pip
-```
-
-### system and server utils
+## system and server utils
 
 ```
 # handy utilities
-apt-get --yes install whois traceroute unzip fail2ban
+apt-get --yes install python3-pip whois traceroute unzip fail2ban
 
 # certbot
 snap install core; snap refresh core
@@ -91,7 +124,7 @@ apt-get --yes install mariadb-server
 mysql_secure_installation  # interactive, no root password, don't set root password, accept all other defaults
 ```
 
-### wp-cli and daily updates to it
+## wp-cli and daily updates to it
 ```
 # awesome, curl the direct executable from GitHub!
 cd /tmp
@@ -100,20 +133,24 @@ chmod +x wp-cli.phar
 sudo mv wp-cli.phar /usr/local/bin/wp
 cd -
 wp --allow-root --no-color --info
-echo <<EOT > /etc/cron.daily/wp-cli-update
+cat > /etc/cron.daily/wp-cli-update <<EOT
 #!/bin/sh
-/usr/local/bin/wp cli update
+/usr/local/bin/wp cli update --allow-root --yes
 EOT
 chmod +x /etc/cron.daily/wp-cli-update
 
 ```
 
-### build first nginx site and templates
+## build first nginx site structure and templates
+
+Note that the `php-site` template below has a 64MB client upload (POST) limit, you may want to go in and adjust this.
+I dislike being errored out when uploading large JPEGs to my own site.
 
 ```
 SITE_NAME="edgelink.example.com"
 dig $SITE_NAME
-mkdir -p "/srv/$SITE_NAME"; 
+mkdir -p "/srv/$SITE_NAME"
+mkdir -p "/var/log/nginx/$SITE_NAME"
 cat > "/srv/$SITE_NAME/index.html" <<EOT
 Site $SITE_NAME being served through nginx
 
@@ -207,5 +244,83 @@ server {
 }
 EOT
 
+sed "s/{{ SITE_NAME }}/$SITE_NAME/g" /etc/nginx/templates/static-site > /etc/nginx/sites-enabled/$SITE_NAME
+
+service nginx reload
+curl http://$SITE_NAME
+
+```
+
+## For my next act, build the stub for the next (WordPress) website
+
+```
+SITE_NAME="example.com"
+mkdir -p "/srv/$SITE_NAME"
+mkdir -p "/var/log/nginx/$SITE_NAME"
+sed "s/{{ SITE_NAME }}/$SITE_NAME/g" /etc/nginx/templates/php-site > /etc/nginx/sites-enabled/$SITE_NAME
+service nginx reload
+```
+
+## Bundle up the previous database and website (on the remote system, assuming wp-cli is also installed there)
+
+```
+SITE_NAME="example.com"
+BUCKET_NAME="example-s3"
+wp db export --allow-root --path="/srv/$SITE_NAME" /tmp/$SITE_NAME-db.sql
+gzip /tmp/$SITE_NAME-db.sql  # should create .sql.gz file
+cd /srv/$SITE_NAME; tar czvf /tmp/$SITE_NAME-www.tar.gz .; cd -
+
+export AWS_ACCESS_KEY_ID="AKIAEXAMPLE9999999"
+export AWS_SECRET_ACCESS_KEY="nothingtoseehere"
+
+aws s3 cp /tmp/$SITE_NAME-db.sql.gz s3://$BUCKET_NAME/
+aws s3 cp /tmp/$SITE_NAME-www.tar.gz s3://$BUCKET_NAME/
+```
+
+## Pull down the database and website from S3 on the new Lightsail instance
+
+```
+SITE_NAME="example.com"
+BUCKET_NAME="example-s3"
+export AWS_ACCESS_KEY_ID="AKIAEXAMPLE9999999"
+export AWS_SECRET_ACCESS_KEY="nothingtoseehere"
+
+aws s3 cp s3://$BUCKET_NAME/$SITE_NAME-db.sql.gz /tmp/
+aws s3 cp s3://$BUCKET_NAME/$SITE_NAME-www.tar.gz /tmp/
+```
+
+## Extract the website contents
+This allows us to read wp-config.php to get the username/password used for MySQL/MariaDB, so we can then create those credentials and the database for the import.
+
+```
+tar xvf /tmp/$SITE_NAME-www.tar.gz -C /srv/$SITE_NAME
+```
+
+## Get the database credentials and create the necessary user
+
+This was somewhat painful not having written PHP for many years. 
+
+```
+php > /dev/null <<EOT
+<?php
+function write_db_vars() {
+    \$output = "#!/bin/sh\n";
+    \$output .= 'export DB_NAME="' . DB_NAME . "\"\n";
+    \$output .= 'export DB_USER="' . DB_USER . "\"\n";
+    \$output .= 'export DB_PASSWORD="' . DB_PASSWORD . "\"\n";
+    file_put_contents('/tmp/$SITE_NAME.dbcreds.sh', \$output);
+}
+register_shutdown_function('write_db_vars');
+include('/srv/$SITE_NAME/wp-config.php');
+write_db_vars();
+
+EOT
+
+source /tmp/$SITE_NAME.dbcreds.sh
+
+mysql mysql <<EOT
+CREATE DATABASE IF NOT EXISTS $DB_NAME;
+GRANT USAGE ON $DB_NAME.* TO '$DB_USER'@localhost IDENTIFIED BY '$DB_PASSWORD';
+EOT
 ```
 
