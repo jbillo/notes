@@ -18,11 +18,12 @@ I'm looking to retry the Lightsail + WordPress migration for some services I sti
   * automatic snapshots off for now, but consider enabling them later
 * Wait for instance to come up
 * Allocate new static IP under Networking and assign to instance
+* Create new, or use existing Lightsail DNS zone and add A record for this host (convenience and initial virtual host testing)
 * Connect to instance (SSH or in-browser console) and
   * `sudo -i`  # to get in a superuser shell
 * Apply hostname: 
-  * `hostname -b edgelink-hosted-sites`
-  * You can log out of the root prompt and `sudo -i` again immediately to confirm this was set
+  * `hostnamectl set-hostname edgelink-hosted-sites`
+  * You can log out of the root prompt and `sudo -i` again immediately to confirm this was set for the current session
 * Do initial round of updates - with noninteractive this could probably be put in instance userdata:
 
 ```
@@ -51,5 +52,64 @@ echo "/swapfile none swap defaults 0 0" >> /etc/fstab
 
 `sysctl vm.swappiness` is already 60 on this AMI so no need to adjust.
 
-Confirm output of `free -m`.
-Reboot system to confirm that fstab entry is effective.
+Confirm output of `free -m` contains a `Swap:` line.
+Reboot system to confirm that fstab entry and persistent hostname is effective. Remember to `sudo -i` your way to success.
+
+### pip
+Ensure at least _some_ version of pip is installed:
+
+```
+apt-get --yes install python3-pip
+```
+
+### system and server utils
+
+```
+# handy utilities
+apt-get --yes install whois traceroute unzip fail2ban
+
+# certbot
+snap install core; snap refresh core
+snap install --classic certbot
+ln -s /snap/bin/certbot /usr/bin/certbot
+
+# awscliv2
+mkdir -p /tmp/awscliv2; cd /tmp/awscliv2; curl -O https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip; unzip *.zip; aws/install; cd -
+
+# php
+apt-get --yes install php-pear php-fpm php-dev php-zip php-curl php-xmlrpc php-gd php-mysql php-mbstring php-xml
+systemctl enable php7.4-fpm
+systemctl start php7.4-fpm
+systemctl status php7.4-fpm
+
+# nginx
+apt-get --yes install nginx
+service nginx status
+
+# MariaDB (mysql)
+apt-get --yes install mariadb-server
+mysql_secure_installation  # interactive, no root password, don't set root password, accept all other defaults
+```
+
+### wp-cli and daily updates to it
+```
+# awesome, curl the direct executable from GitHub!
+cd /tmp
+curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+chmod +x wp-cli.phar
+sudo mv wp-cli.phar /usr/local/bin/wp
+cd -
+wp --allow-root --no-color --info
+echo <<EOT > /etc/cron.daily/wp-cli-update
+#!/bin/sh
+/usr/local/bin/wp cli update
+EOT
+chmod +x /etc/cron.daily/wp-cli-update
+
+```
+
+### build first nginx site and templates
+
+```
+WIP
+```
