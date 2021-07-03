@@ -397,7 +397,7 @@ chmod +x /etc/cron.daily/wp-update-$SITE_NAME
 
 ```
 CERTBOT_EMAIL="me@example.com"
-certbot certonly --manual --preferred-challenges dns --agree-tos --email $CERTBOT_EMAIL --no-eff-email --domains "*.$SITE_NAME" "$SITE_NAME"
+certbot certonly --manual --preferred-challenges dns --agree-tos --email $CERTBOT_EMAIL --no-eff-email --domains "*.$SITE_NAME" --domains "$SITE_NAME"
 # This will prompt for a DNS record creation - don't just hit Enter. TODO: Need a way to better automate this...
 # Creates files under /etc/letsencrypt/live/$SITE_NAME/
 
