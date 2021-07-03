@@ -54,14 +54,16 @@ I'm looking to retry the Lightsail + WordPress migration for some services I sti
 }
 ```
 
+* Back up the IAM credentials created to Parameter Store or separate password vault service
 * Create new Lightsail instance in AWS account (512MB/20GB at $3.50/month, ca-central-1d) via Web console
-  * with fresh new keypair
+  * with fresh new keypair; consider backing up to Parameter Store or separate password vault service
   * Ubuntu 20.04
   * automatic snapshots off for now, but consider enabling them later
 * Wait for instance to come up
 * Allocate new static IP under Networking and assign to instance
 * Create new, or use existing Lightsail DNS zone and add A record for this host (convenience and initial virtual host testing)
 * Connect to instance (SSH or in-browser console) and
+  * Add any necessary keypairs to `/home/ubuntu/.ssh/authorized_keys` (root SSH will be disabled by default)
   * `sudo -i`  # to get in a superuser shell
 * Apply hostname: 
   * `hostnamectl set-hostname edgelink-hosted-sites`
@@ -159,6 +161,30 @@ cat "/srv/$SITE_NAME/index.html"
 chown -R www-data:www-data "/srv/$SITE_NAME"
 mkdir -p /etc/nginx/templates; cd /etc/nginx/templates
 
+curl https://ssl-config.mozilla.org/ffdhe2048.txt > /etc/nginx/ffdhe2048.pem
+
+# https://ssl-config.mozilla.org/#server=nginx&version=1.18.0&config=intermediate&openssl=1.1.1f&ocsp=false&guideline=5.6
+cat > "/etc/nginx/ssl.conf" <<"EOT"
+    # Meant to be included inside a server {} block
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    
+    # Add your own configuration for ssl_certificate and ssl_certificate_key parameters
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozSSL:10m;  # about 40000 sessions
+    ssl_session_tickets off;
+    
+    ssl_dhparam /etc/nginx/ffdhe2048.pem;
+
+    # intermediate configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    # HSTS (ngx_http_headers_module is required) (63072000 seconds)
+    add_header Strict-Transport-Security "max-age=63072000" always;
+EOT
+
 # https://serverfault.com/a/399432
 cat > "/etc/nginx/templates/static-site" <<"EOT" 
 server {
@@ -196,8 +222,12 @@ server {
 EOT
 
 
-cat > "/etc/nginx/templates/php-site" <<"EOT"
+cat > "/etc/nginx/templates/php-site-https" <<"EOT"
 server {
+    include /etc/nginx/ssl.conf;
+    ssl_certificate /etc/letsencrypt/live/{{ SITE_NAME }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ SITE_NAME }}/privkey.pem;
+    
     root /srv/{{ SITE_NAME }};
     index index.php index.html index.htm index.nginx-debian.html;
     server_name {{ SITE_NAME }} www.{{ SITE_NAME }};
@@ -242,6 +272,17 @@ server {
         fastcgi_index index.php;
     }
 }
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ SITE_NAME }} www.{{ SITE_NAME }};    
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
 EOT
 
 sed "s/{{ SITE_NAME }}/$SITE_NAME/g" /etc/nginx/templates/static-site > /etc/nginx/sites-enabled/$SITE_NAME
@@ -251,14 +292,12 @@ curl http://$SITE_NAME
 
 ```
 
-## For my next act, build the stub for the next (WordPress) website
+## Build directory structure for subsequent WordPress + HTTPS sites
 
 ```
 SITE_NAME="example.com"
 mkdir -p "/srv/$SITE_NAME"
 mkdir -p "/var/log/nginx/$SITE_NAME"
-sed "s/{{ SITE_NAME }}/$SITE_NAME/g" /etc/nginx/templates/php-site > /etc/nginx/sites-enabled/$SITE_NAME
-service nginx reload
 ```
 
 ## Bundle up the previous database and website (on the remote system, assuming wp-cli is also installed there)
@@ -363,5 +402,18 @@ certbot certonly --manual --preferred-challenges dns --agree-tos --email $CERTBO
 
 ```
 
-## Add nginx SSL configuration
-TODO.
+ ## Add the nginx configuration for the WordPress website using TLS/SSL
+
+```
+sed "s/{{ SITE_NAME }}/$SITE_NAME/g" /etc/nginx/templates/php-site-https > /etc/nginx/sites-enabled/$SITE_NAME
+service nginx reload
+```
+
+## Test by overriding DNS temporarily and confirming
+
+There really should be a better way to do this. 
+
+On the local system, edit /etc/hosts for the domain(s) in question to point to the Elastic IP assigned to your instance.
+Review website functionality and access logs to confirm that you're indeed accessing the new server.
+
+## Update DNS records to point to new host
