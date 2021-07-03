@@ -62,6 +62,7 @@ I'm looking to retry the Lightsail + WordPress migration for some services I sti
 * Wait for instance to come up
 * Allocate new static IP under Networking and assign to instance
 * Create new, or use existing Lightsail DNS zone and add A record for this host (convenience and initial virtual host testing)
+* Ensure Lightsail "security groups" permit tcp/80 and tcp/443 access from Internet
 * Connect to instance (SSH or in-browser console) and
   * Add any necessary keypairs to `/home/ubuntu/.ssh/authorized_keys` (root SSH will be disabled by default)
   * `sudo -i`  # to get in a superuser shell
@@ -396,7 +397,7 @@ chmod +x /etc/cron.daily/wp-update-$SITE_NAME
 
 ```
 CERTBOT_EMAIL="me@example.com"
-certbot certonly --manual --preferred-challenges dns --agree-tos --email $CERTBOT_EMAIL --no-eff-email --domains "*.$SITE_NAME"
+certbot certonly --manual --preferred-challenges dns --agree-tos --email $CERTBOT_EMAIL --no-eff-email --domains "*.$SITE_NAME" "$SITE_NAME"
 # This will prompt for a DNS record creation - don't just hit Enter. TODO: Need a way to better automate this...
 # Creates files under /etc/letsencrypt/live/$SITE_NAME/
 
