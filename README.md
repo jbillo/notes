@@ -4,13 +4,13 @@ Scratch area for notes while working on my main website
 # Lightsail and WordPress, together again
 I'm looking to retry the Lightsail + WordPress migration for some services I still am responsible for hosting on Linode. Last time I did this I ran it with Ansible + Terraform but that's a huge maintenance headache. I think the fix will be, if the Lightsail instance goes down, to pay for snapshots - if that fails rebuild the system and restore an at-most 1-day old backup of the databases and relevant filesystem contents from S3. Key things to handle:
 
-[X] Initial Lightsail host configuration - likely OK if this is somewhat manual as long as the steps are documented, and may let us go to whatever the latest Ubuntu or Amazon Linux 2 version is at the time
-[ ] Let's Encrypt certificates need DNS validation (not HTTP, since the record will still be pointed at Linode at the time I'd like to set things up) and automated renewal
-[ ] One-time back up the website contents and database, then shuttle them over to Lightsail and import them successfully
-[ ] nginx + php + mysql configuration sanity
-[ ] admin interfaces for all of this (phpmyadmin) bound to localhost - port forward for this (SOCKS proxy again? wireguard?)
-[ ] wp2static support for my own site as a nice-to-have (can run "lokl" maybe with some Docker containers on a large enough host?)
-[X] Ongoing backups to S3 (well, sort of)
+- [x] Initial Lightsail host configuration - likely OK if this is somewhat manual as long as the steps are documented, and may let us go to whatever the latest Ubuntu or Amazon Linux 2 version is at the time
+- [ ] Let's Encrypt certificates need DNS validation (not HTTP, since the record will still be pointed at Linode at the time I'd like to set things up) and automated renewal
+- [x] One-time back up the website contents and database, then shuttle them over to Lightsail and import them successfully
+- [ ] nginx + php + mysql configuration sanity
+- [ ] admin interfaces for all of this (phpmyadmin) bound to localhost - port forward for this (SOCKS proxy again? wireguard?)
+- [ ] wp2static support for my own site as a nice-to-have (can run "lokl" maybe with some Docker containers on a large enough host?)
+- [x] Ongoing backups to S3 (well, sort of)
 
 ## Getting Started
 * Create new or use existing S3 bucket and get its ARN. Might want to enable versioning here with appropriate lifecycle policy to expire versions.
