@@ -1,18 +1,19 @@
 # notes
 Scratch area for notes while working on my main website
 
-# 2020-07-01
+# Lightsail and WordPress, together again
 I'm looking to retry the Lightsail + WordPress migration for some services I still am responsible for hosting on Linode. Last time I did this I ran it with Ansible + Terraform but that's a huge maintenance headache. I think the fix will be, if the Lightsail instance goes down, to pay for snapshots - if that fails rebuild the system and restore an at-most 1-day old backup of the databases and relevant filesystem contents from S3. Key things to handle:
 
-* Initial Lightsail host configuration - likely OK if this is somewhat manual as long as the steps are documented, and may let us go to whatever the latest Ubuntu or Amazon Linux 2 version is at the time
-* Let's Encrypt certificates need DNS validation (not HTTP, since the record will still be pointed at Linode at the time I'd like to set things up)
-* Back up the website contents and database, then shuttle them over to Lightsail and import them successfully
-* nginx + php + mysql configuration sanity
-* admin interfaces for all of this (phpmyadmin) bound to localhost - port forward for this (SOCKS proxy again? wireguard?)
-* wp2static support for my own site as a nice-to-have (can run "lokl" maybe with some Docker containers on a large enough host?)
+[X] Initial Lightsail host configuration - likely OK if this is somewhat manual as long as the steps are documented, and may let us go to whatever the latest Ubuntu or Amazon Linux 2 version is at the time
+[ ] Let's Encrypt certificates need DNS validation (not HTTP, since the record will still be pointed at Linode at the time I'd like to set things up) and automated renewal
+[ ] One-time back up the website contents and database, then shuttle them over to Lightsail and import them successfully
+[ ] nginx + php + mysql configuration sanity
+[ ] admin interfaces for all of this (phpmyadmin) bound to localhost - port forward for this (SOCKS proxy again? wireguard?)
+[ ] wp2static support for my own site as a nice-to-have (can run "lokl" maybe with some Docker containers on a large enough host?)
+[X] Ongoing backups to S3 (well, sort of)
 
 ## Getting Started
-* Create new or use existing S3 bucket and get its ARN
+* Create new or use existing S3 bucket and get its ARN. Might want to enable versioning here with appropriate lifecycle policy to expire versions.
 * Create new IAM user with access key (needed for Lightsail or non-AWS) with the appropriate policy attached, replacing _MY_BUCKET_NAME_ with your real bucket name:
 
 ```
@@ -418,3 +419,38 @@ On the local system, edit /etc/hosts for the domain(s) in question to point to t
 Review website functionality and access logs to confirm that you're indeed accessing the new server.
 
 ## Update DNS records to point to new host
+Lightsail DNS, Route53, Linode, etc.
+
+## Ongoing backups to S3
+I used to have a Python script that did this, but falling back to good old bash.
+
+```
+cat > /etc/cron.daily/s3backup <<"EOT"
+#!/bin/bash
+
+BUCKET_NAME="mybucket"
+export AWS_ACCESS_KEY_ID="AKIA9EXAMPLE"
+export AWS_SECRET_ACCESS_KEY="nosuchluck"
+
+/usr/local/bin/aws sts get-caller-identity
+
+sites=`find /srv/ -maxdepth 1 -mindepth 1 -type d -printf '%f\n'`
+for site in $sites; do
+    /usr/local/bin/wp db export --allow-root --path="/srv/$site" /tmp/$site-db.sql
+    gzip /tmp/$site-db.sql  # should create .sql.gz file
+    cd /srv/$site; tar czvf /tmp/$site-www.tar.gz .; cd -
+    /usr/local/bin/aws s3 cp /tmp/$site-db.sql.gz s3://$BUCKET_NAME/
+    /usr/local/bin/aws s3 cp /tmp/$site-www.tar.gz s3://$BUCKET_NAME/
+    rm /tmp/$site-db.sql.gz
+    rm /tmp/$site-www.tar.gz
+done
+
+unset AWS_ACCESS_KEY_ID
+unset AWS_SECRET_ACCESS_KEY
+
+EOT
+
+chmod +x /etc/cron.daily/s3backup
+# run manually
+/etc/cron.daily/s3backup
+```
