@@ -145,6 +145,36 @@ chmod +x /etc/cron.daily/wp-cli-update
 
 ```
 
+## Update all WordPress core, plugins, themes, etc. for all sites.
+
+```
+cat > /etc/cron.daily/wp-update <<"EOT"
+#!/bin/bash
+WP_CMD="/usr/local/bin/wp"
+WP_FLAGS="--allow-root --no-color"
+
+sites=`find /srv/ -maxdepth 1 -mindepth 1 -type d -printf '%f\n'`
+for site in $sites; do
+    echo "Operating on site: $site"
+    $WP_CMD $WP_FLAGS --path=/srv/$site core update
+    core_update_result=$?
+    if [[ $core_update_result -eq 1 ]]; then
+        echo "Skipping site $site as it does not appear to be a WordPress installation (exit code $core_update_result)"
+        continue
+    fi
+    $WP_CMD core update-db $WP_FLAGS --path=/srv/$site
+    $WP_CMD plugin update --all $WP_FLAGS --path=/srv/$site
+    $WP_CMD theme update --all $WP_FLAGS --path=/srv/$site
+    echo "All update commands complete for site: $site"
+done
+
+EOT
+
+chmod +x /etc/cron.daily/wp-update
+/etc/cron.daily/wp-update
+
+```
+
 ## build first nginx site structure and templates
 
 Note that the `php-site` template below has a 64MB client upload (POST) limit, you may want to go in and adjust this.
@@ -374,25 +404,7 @@ gunzip /tmp/$SITE_NAME-db.sql.gz
 wp db import --allow-root --path=/srv/$SITE_NAME /tmp/$SITE_NAME-db.sql
 ```
 
-## Update all WordPress core, plugins, themes, etc.
 
-```
-cat > /etc/cron.daily/wp-update-$SITE_NAME <<EOT
-#!/bin/sh
-WP_CMD="/usr/local/bin/wp"
-WP_FLAGS="--allow-root --no-color"
-
-\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME core update\`
-\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME core update-db\`
-\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME plugin update --all\`
-\`\$WP_CMD \$WP_FLAGS --path=/srv/$SITE_NAME theme update --all\`
-
-EOT
-
-chmod +x /etc/cron.daily/wp-update-$SITE_NAME
-/etc/cron.daily/wp-update-$SITE_NAME
-
-```
 
 ## Request SSL certificate with DNS validation
 
