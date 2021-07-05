@@ -8,7 +8,7 @@ I'm looking to retry the Lightsail + WordPress migration for some services I sti
 - [ ] Let's Encrypt certificates need DNS validation (not HTTP, since the record will still be pointed at Linode at the time I'd like to set things up) and automated renewal
 - [x] One-time back up the website contents and database, then shuttle them over to Lightsail and import them successfully
 - [ ] nginx + php + mysql configuration sanity
-- [ ] admin interfaces for all of this (phpmyadmin) bound to localhost - port forward for this (SOCKS proxy again? wireguard?)
+- [x] phpmyadmin, bound to interface bound to 127.x.y.z using SOCKS proxy
 - [ ] wp2static support for my own site as a nice-to-have (can run "lokl" maybe with some Docker containers on a large enough host?)
 - [x] Ongoing backups to S3 (well, sort of)
 
