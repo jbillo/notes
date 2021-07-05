@@ -103,7 +103,7 @@ Reboot system to confirm that fstab entry and persistent hostname is effective. 
 
 ```
 # handy utilities
-apt-get --yes install python3-pip whois traceroute unzip fail2ban
+apt-get --yes install python3-pip whois traceroute unzip fail2ban net-tools
 
 # certbot
 snap install core; snap refresh core
@@ -253,6 +253,22 @@ server {
 
 EOT
 
+# meant to be included inside a server {} block
+cat > "/etc/nginx/php.conf" <<"EOT"
+    # pass the PHP scripts to FastCGI server
+    location ~ \.php$ {
+        try_files $uri =404;
+        include /etc/nginx/fastcgi_params;
+        fastcgi_intercept_errors on;
+        fastcgi_read_timeout 3600s;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_pass unix:/run/php/php7.4-fpm.sock;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_index index.php;
+    }
+
+EOT
+
 
 cat > "/etc/nginx/templates/php-site-https" <<"EOT"
 server {
@@ -292,17 +308,7 @@ server {
         expires max;
     }
 
-    # pass the PHP scripts to FastCGI server
-    location ~ \.php$ {
-        try_files $uri =404;
-        include /etc/nginx/fastcgi_params;
-        fastcgi_intercept_errors on;
-        fastcgi_read_timeout 3600s;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        fastcgi_pass unix:/run/php/php7.4-fpm.sock;
-        fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        fastcgi_index index.php;
-    }
+    include /etc/nginx/php.conf;
 }
 
 server {
@@ -467,6 +473,38 @@ chmod +x /etc/cron.daily/s3backup
 /etc/cron.daily/s3backup
 ```
 
+## Install phpmyadmin bound to 127.0.0.2 only
+This ensures that if 127.0.0.1 is somehow accidentally routed to the Internet we're not exposing a potentially vulnerable webapp.
+It also allows us to listen on standard port 80 without a server name (eg: another administration app could be on 127.0.0.3...)
+
+```
+# Using interactive mode. Don't configure with apache2 or lighthttpd, generate a random password for the phpMyAdmin application.
+apt-get install phpmyadmin
+mkdir -p /var/log/nginx/127.0.0.2
+
+cat > /etc/nginx/sites-enabled/127.0.0.2-phpmyadmin <<"EOT"
+server {
+    listen 127.0.0.2:80;
+    
+    root /usr/share/phpmyadmin;
+    index index.php index.html index.htm index.nginx-debian.html;
+    access_log /var/log/nginx/127.0.0.2/access.log;
+    error_log /var/log/nginx/127.0.0.2/error.log;
+
+    client_max_body_size 64M;    
+    
+    include /etc/nginx/php.conf;
+}
+EOT
+
+service nginx reload
+curl http://127.0.0.2/
+```
+
+Then, from your client system, use `ssh -D7070 edgelink-hosted-sites` and a SOCKS5 proxy configuration (that directs traffic for private IPs/localhost through the proxy.)
+Connect to http://127.0.0.2 and provide credentials for the appropriate WordPress DB (`cat /srv/$SITE_NAME/wp-config.php`).
+
+
 # Ongoing site management tips and tricks
 
 ## Redirecting subdirectory to the site root in nginx
@@ -481,4 +519,10 @@ rewrite ^/blog/(.*)$ /$1 last;
 
 ```
 cd /srv/$SITE_NAME; wp db cli --allow-root
+```
+
+## Fix the 'siteurl' via SQL if you've changed the path and can't log in to wp-admin
+
+```
+UPDATE wp_options SET option_value = 'http://example.com' WHERE option_name = 'siteurl' LIMIT 1;
 ```
