@@ -466,3 +466,19 @@ chmod +x /etc/cron.daily/s3backup
 # run manually
 /etc/cron.daily/s3backup
 ```
+
+# Ongoing site management tips and tricks
+
+## Redirecting subdirectory to the site root in nginx
+
+In the `server {}` config, we want anything under `/blog/` to be redirected to the root.
+```
+# blog migration
+rewrite ^/blog/(.*)$ /$1 last;
+```
+
+## Connect to the WordPress DB directly via command line
+
+```
+cd /srv/$SITE_NAME; wp db cli --allow-root
+```
