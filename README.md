@@ -115,6 +115,8 @@ mkdir -p /tmp/awscliv2; cd /tmp/awscliv2; curl -O https://awscli.amazonaws.com/a
 
 # php
 apt-get --yes install php-pear php-fpm php-dev php-zip php-curl php-xmlrpc php-gd php-mysql php-mbstring php-xml
+# interactive: set PHP POST maximum size
+vi /etc/php/7.4/fpm/php.ini  # set post_max_size = 64M
 systemctl enable php7.4-fpm
 systemctl start php7.4-fpm
 systemctl status php7.4-fpm
